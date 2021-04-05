@@ -10,9 +10,8 @@ conf:
       cafile: /etc/glance/certs/ca.crt
     glance_store:
       https_ca_certificates_file: /etc/glance/certs/ca.crt
+      swift_store_cacert: /etc/glance/certs/ca.crt
   glance_registry:
-    DEFAULT:
-      bind_host: 127.0.0.1
     keystone_authtoken:
       cafile: /etc/glance/certs/ca.crt
   nginx: |
@@ -93,6 +92,7 @@ endpoints:
           secretName: glance-tls-api
           issuerRef:
             name: ca-issuer
+            kind: ClusterIssuer
     scheme:
       default: https
       public: https
@@ -106,6 +106,7 @@ endpoints:
           secretName: glance-tls-reg
           issuerRef:
             name: ca-issuer
+            kind: ClusterIssuer
     scheme:
       default: https
       public: https

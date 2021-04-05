@@ -29,8 +29,11 @@ spec:
     metadata:
       labels:
 {{ tuple $envAll "placement" $service  | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 8 }}
+      annotations:
+{{ dict "envAll" $envAll "podName" "placement-db-migrate" "containerNames" (list "placement-mysql-migration" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
       serviceAccountName: {{ $serviceAccountName }}
+{{ dict "envAll" $envAll "application" "placement" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       restartPolicy: OnFailure
       nodeSelector:
         {{ .Values.labels.job.node_selector_key }}: {{ .Values.labels.job.node_selector_value }}
@@ -40,6 +43,7 @@ spec:
         - name: placement-mysql-migration
 {{ tuple $envAll $service | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.jobs.ks_service | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "placement" "container" "placement_mysql_migration" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/db-migrate.sh
           env:
@@ -58,6 +62,10 @@ spec:
               value: {{ .Values.endpoints.oslo_db.auth.placement.password | quote }}
             - name: PLACEMENT_DB_HOST
               value: {{ tuple "oslo_db" "internal" . | include "helm-toolkit.endpoints.endpoint_host_lookup" | quote }}
+{{- if $envAll.Values.manifests.certificates }}
+            - name: MARIADB_X509
+              value: "REQUIRE X509"
+{{- end }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
@@ -74,6 +82,7 @@ spec:
               subPath: placement.conf
               readOnly: true
 {{ dict "enabled" .Values.manifests.certificates "name" $envAll.Values.secrets.tls.placement.api.internal | include "helm-toolkit.snippets.tls_volume_mount"  | indent 12 }}
+{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
@@ -85,5 +94,6 @@ spec:
           secret:
             secretName: placement-etc
             defaultMode: 0444
+{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.placement.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- end }}

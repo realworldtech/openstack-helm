@@ -16,6 +16,11 @@ set -xe
 
 export CEPH_ENABLED=true
 
+if [ "${CREATE_LOOPBACK_DEVICES_FOR_CEPH:=true}" == "true" ]; then
+  ./tools/deployment/common/setup-ceph-loopback-device.sh --ceph-osd-data ${CEPH_OSD_DATA_DEVICE:=/dev/loop0} \
+  --ceph-osd-dbwal ${CEPH_OSD_DB_WAL_DEVICE:=/dev/loop1}
+fi
+
 #NOTE: Lint and package chart
 export HELM_CHART_ROOT_PATH="${HELM_CHART_ROOT_PATH:="${OSH_INFRA_PATH:="../openstack-helm-infra"}"}"
 for CHART in ceph-mon ceph-osd ceph-client ceph-provisioners; do
@@ -28,8 +33,9 @@ CEPH_FS_ID="$(cat /tmp/ceph-fs-uuid.txt)"
 #NOTE(portdirect): to use RBD devices with Ubuntu kernels < 4.5 this
 # should be set to 'hammer'
 . /etc/os-release
-if [ "x${ID}" == "xubuntu" ] && \
-   [ "$(uname -r | awk -F "." '{ print $2 }')" -lt "5" ]; then
+if [ "x${ID}" == "xcentos" ] || \
+   ([ "x${ID}" == "xubuntu" ] && \
+   dpkg --compare-versions "$(uname -r)" "lt" "4.5"); then
   CRUSH_TUNABLES=hammer
 else
   CRUSH_TUNABLES=null
@@ -38,16 +44,8 @@ tee /tmp/ceph.yaml <<EOF
 endpoints:
   ceph_mon:
     namespace: ceph
-    port:
-      mon:
-        default: 6789
   ceph_mgr:
     namespace: ceph
-    port:
-      mgr:
-        default: 7000
-      metrics:
-        default: 9283
 network:
   public: 172.17.0.1/16
   cluster: 172.17.0.1/16
@@ -60,8 +58,6 @@ deployment:
 bootstrap:
   enabled: true
 conf:
-  rgw_ks:
-    enabled: true
   ceph:
     global:
       fsid: ${CEPH_FS_ID}
@@ -157,20 +153,18 @@ conf:
     osd:
       - data:
           type: bluestore
-          location: /dev/loop0
+          location: ${CEPH_OSD_DATA_DEVICE}
         block_db:
-          location: /dev/loop1
+          location: ${CEPH_OSD_DB_WAL_DEVICE}
           size: "5GB"
         block_wal:
-          location: /dev/loop1
+          location: ${CEPH_OSD_DB_WAL_DEVICE}
           size: "2GB"
+
 pod:
   replicas:
     mds: 1
     mgr: 1
-    rgw: 1
-deploy:
-  tool: "ceph-volume"
 
 EOF
 
@@ -179,7 +173,7 @@ for CHART in ceph-mon ceph-osd ceph-client ceph-provisioners; do
   helm upgrade --install ${CHART} ${HELM_CHART_ROOT_PATH}/${CHART} \
     --namespace=ceph \
     --values=/tmp/ceph.yaml \
-    ${OSH_EXTRA_HELM_ARGS:=} \
+    ${OSH_EXTRA_HELM_ARGS} \
     ${OSH_EXTRA_HELM_ARGS_CEPH:-$(./tools/deployment/common/get-values-overrides.sh ${CHART})}
 
   #NOTE: Wait for deploy

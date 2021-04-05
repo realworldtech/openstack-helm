@@ -19,7 +19,7 @@ limitations under the License.
 {{- $serviceAccountName := print "glance-clean" }}
 {{ tuple $envAll "clean" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ $serviceAccountName }}
@@ -32,7 +32,7 @@ rules:
       - get
       - delete
 ---
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ $serviceAccountName }}
@@ -60,6 +60,7 @@ spec:
 {{ tuple $envAll "glance" "clean" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 8 }}
     spec:
       serviceAccountName: {{ $serviceAccountName }}
+{{ dict "envAll" $envAll "application" "clean" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       restartPolicy: OnFailure
       nodeSelector:
         {{ .Values.labels.job.node_selector_key }}: {{ .Values.labels.job.node_selector_value }}
@@ -70,6 +71,7 @@ spec:
         - name: glance-secret-clean
 {{ tuple $envAll "glance_storage_init" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.jobs.bootstrap | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "clean" "container" "glance_secret_clean" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
             - name: NAMESPACE
               valueFrom:

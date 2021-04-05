@@ -66,7 +66,7 @@ spec:
 {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" | indent 8 }}
         configmap-bin-hash: {{ tuple "configmap-bin.yaml" . | include "helm-toolkit.utils.hash" }}
         configmap-etc-hash: {{ tuple "configmap-etc.yaml" . | include "helm-toolkit.utils.hash" }}
-{{ dict "envAll" $envAll "podName" "neutron-ovs-agent-default" "containerNames" (list "neutron-ovs-agent" "init" "neutron-openvswitch-agent-kernel-modules" "neutron-ovs-agent-init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
+{{ dict "envAll" $envAll "podName" "$configMapName" "containerNames" (list "neutron-ovs-agent" "init" "neutron-openvswitch-agent-kernel-modules" "neutron-ovs-agent-init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_ovs_agent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
@@ -95,6 +95,7 @@ spec:
               readOnly: true
             - name: host-rootfs
               mountPath: /mnt/host-rootfs
+              mountPropagation: HostToContainer
               readOnly: true
 {{- if .Values.conf.ovs_dpdk.enabled }}
             - name: pci-devices
@@ -104,6 +105,14 @@ spec:
 {{ tuple $envAll "neutron_openvswitch_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.agent.ovs | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "neutron_ovs_agent" "container" "neutron_ovs_agent_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          {{- if .Values.conf.ovs_dpdk.enabled }}
+          env:
+            - name: UPDATE_DPDK_BOND_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $configMapName }}
+                  key: update_dpdk_bond_config
+          {{- end }}
           command:
             - /tmp/neutron-openvswitch-agent-init.sh
           volumeMounts:

@@ -41,6 +41,7 @@ spec:
         - name: nova-cell-setup-init
 {{ tuple $envAll "nova_cell_setup_init" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.jobs.cell_setup | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "nova_cell_setup" "container" "nova_cell_setup_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
 {{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" .Values.manifests.certificates }}
 {{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
@@ -59,6 +60,7 @@ spec:
         - name: nova-cell-setup
 {{ tuple $envAll "nova_cell_setup" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.jobs.cell_setup | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "nova_cell_setup" "container" "nova_cell_setup" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/cell-setup.sh
           volumeMounts:
@@ -84,6 +86,7 @@ spec:
               mountPath: /etc/nova/policy.yaml
               subPath: policy.yaml
               readOnly: true
+{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
@@ -97,5 +100,6 @@ spec:
           configMap:
             name: nova-bin
             defaultMode: 0555
+{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.compute.osapi.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- end }}

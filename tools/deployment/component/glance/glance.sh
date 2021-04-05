@@ -16,6 +16,7 @@ set -xe
 
 #NOTE: Get the over-rides to use
 : ${OSH_EXTRA_HELM_ARGS_GLANCE:="$(./tools/deployment/common/get-values-overrides.sh glance)"}
+: ${RUN_HELM_TESTS:="yes"}
 
 #NOTE: Lint and package chart
 make glance
@@ -59,3 +60,9 @@ openstack service list
 sleep 30 #NOTE(portdirect): Wait for ingress controller to update rules and restart Nginx
 openstack image list
 openstack image show 'Cirros 0.3.5 64-bit'
+
+if [ "x${RUN_HELM_TESTS}" == "xno" ]; then
+    exit 0
+fi
+
+./tools/deployment/common/run-helm-tests.sh glance

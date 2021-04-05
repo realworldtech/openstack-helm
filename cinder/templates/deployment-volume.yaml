@@ -15,6 +15,8 @@ limitations under the License.
 {{- if .Values.manifests.deployment_volume }}
 {{- $envAll := . }}
 
+{{- $internal_ceph_backend := .Values.ceph_client.internal_ceph_backend }}
+
 {{- $mounts_cinder_volume := .Values.pod.mounts.cinder_volume.cinder_volume }}
 {{- $mounts_cinder_volume_init := .Values.pod.mounts.cinder_volume.init_container }}
 
@@ -54,10 +56,14 @@ spec:
 {{- if .Values.pod.useHostNetwork.volume }}
       hostNetwork: true
 {{- end }}
+{{- if .Values.conf.enable_iscsi }}
+      hostIPC: true
+{{- end }}
       initContainers:
 {{ tuple $envAll "volume" $mounts_cinder_volume_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
         {{- range $name := rest (splitList "," (include "cinder.utils.ceph_backend_list" $envAll)) }}
           {{- $backend := index $envAll.Values.conf.backends $name }}
+            {{- if eq $internal_ceph_backend $name }}
         - name: ceph-keyring-placement-{{$name}}
 {{ tuple $envAll "cinder_volume" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cinder_volume" "container" "ceph_keyring_placement" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
@@ -66,6 +72,10 @@ spec:
           env:
             - name: RBD_USER
               value: {{ $backend.rbd_user | quote }}
+{{- if and $envAll.Values.ceph_client.enable_external_ceph_backend $envAll.Values.ceph_client.external_ceph.rbd_user }}
+            - name: EXTERNAL_RBD_USER
+              value: {{ $envAll.Values.ceph_client.external_ceph.rbd_user | quote }}
+{{- end }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
@@ -79,6 +89,13 @@ spec:
               mountPath: /tmp/client-keyring
               subPath: key
               readOnly: true
+            {{- if and $envAll.Values.ceph_client.enable_external_ceph_backend $envAll.Values.ceph_client.external_ceph.rbd_user }}
+            - name: external-ceph-keyring
+              mountPath: /tmp/external-ceph-client-keyring
+              subPath: key
+              readOnly: true
+            {{- end }}
+            {{- end }}
         {{- end }}
         {{- if eq ( split "://" .Values.conf.cinder.coordination.backend_url )._0 "file" }}
         - name: ceph-coordination-volume-perms
@@ -96,7 +113,6 @@ spec:
               mountPath: {{ ( split "://" .Values.conf.cinder.coordination.backend_url )._1 }}
         {{ end }}
         - name: init-cinder-conf
-{{ tuple $envAll "cinder_volume" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cinder_volume" "container" "init_cinder_conf" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           image: {{ .Values.images.tags.ks_user }}
           imagePullPolicy: {{ .Values.images.pull_policy }}
@@ -130,6 +146,7 @@ spec:
 {{ dict "envAll" $envAll "application" "cinder_volume" "container" "cinder_volume" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/cinder-volume.sh
+          terminationMessagePath: /var/log/termination-log
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
@@ -166,6 +183,18 @@ spec:
               mountPath: /tmp/client-keyring
               subPath: key
               readOnly: true
+            {{- if .Values.ceph_client.enable_external_ceph_backend }}
+            - name: cinder-etc
+              mountPath: /etc/ceph/external-ceph.conf
+              subPath: external-ceph.conf
+              readOnly: true
+            {{- if .Values.ceph_client.external_ceph.rbd_user }}
+            - name: external-ceph-keyring
+              mountPath: /tmp/external-ceph-client-keyring
+              subPath: key
+              readOnly: true
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- if eq ( split "://" .Values.conf.cinder.coordination.backend_url )._0 "file" }}
             - name: cinder-coordination
@@ -199,12 +228,20 @@ spec:
             {{- if .Values.conf.enable_iscsi }}
             - name: host-rootfs
               mountPath: /mnt/host-rootfs
+              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
+              mountPropagation: HostToContainer
+              {{- end }}
+            - name: host-dev
+              mountPath: /dev
+              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
+              mountPropagation: HostToContainer
+              {{- end }}
             - name: runlock
               mountPath: /run/lock
             - name: etciscsi
               mountPath: /etc/iscsi
               {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
-              mountPropagation: Bidirectional
+              mountPropagation: HostToContainer
               {{- end }}
             - name: usrlocalsbin
               mountPath: /usr/local/sbin
@@ -212,6 +249,8 @@ spec:
               mountPath: /usr/local/sbin/iscsiadm
               subPath: iscsiadm
             {{- end }}
+{{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.volume.api.internal "path" "/etc/cinder/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_cinder_volume.volumeMounts }}{{ toYaml $mounts_cinder_volume.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
@@ -238,9 +277,14 @@ spec:
         - name: ceph-keyring
           secret:
             secretName: {{ .Values.secrets.rbd.volume | quote }}
+        {{- if and .Values.ceph_client.enable_external_ceph_backend .Values.ceph_client.external_ceph.rbd_user }}
+        - name: external-ceph-keyring
+          secret:
+            secretName: {{ .Values.secrets.rbd.volume_external | quote }}
+        {{ end }}
         {{ end }}
         {{- if eq ( split "://" .Values.conf.cinder.coordination.backend_url )._0 "file" }}
-        #NOTE (portdirect): this will need to be set to a shared mount amongst all cinder
+        # NOTE (portdirect): this will need to be set to a shared mount amongst all cinder
         # pods for the coordination backend to be fully functional.
         - name: cinder-coordination
           emptyDir: {}
@@ -249,6 +293,9 @@ spec:
         - name: host-rootfs
           hostPath:
             path: /
+        - name: host-dev
+          hostPath:
+            path: /dev
         - name: runlock
           hostPath:
             path: /run/lock
@@ -258,6 +305,7 @@ spec:
         - name: usrlocalsbin
           emptyDir: {}
         {{- end }}
+{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.volume.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_cinder_volume.volumes }}{{ toYaml $mounts_cinder_volume.volumes | indent 8 }}{{ end }}
 {{- end }}

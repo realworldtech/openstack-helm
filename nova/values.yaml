@@ -86,7 +86,7 @@ images:
     nova_service_cleaner: 'docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_xenial'
     nova_spiceproxy: docker.io/openstackhelm/nova:stein-ubuntu_bionic
     nova_spiceproxy_assets: docker.io/openstackhelm/nova:stein-ubuntu_bionic
-    test: docker.io/xrally/xrally-openstack:1.3.0
+    test: docker.io/xrally/xrally-openstack:2.0.0
     image_repo_sync: docker.io/docker:17.07.0
     nova_wait_for_computes_init: gcr.io/google_containers/hyperkube-amd64:v1.11.6
   local_registry:
@@ -161,7 +161,7 @@ bootstrap:
     scripts:
       init_script: |
         # This runs in a bootstrap init container. It counts the number of compute nodes.
-        COMPUTE_NODES=$(kubectl get nodes -o custom-columns=NAME:.metadata.name --no-headers | sort)
+        COMPUTE_NODES=$(kubectl get nodes -o custom-columns=NAME:.metadata.name -l openstack-compute-node=enabled --no-headers | sort)
         /bin/echo $COMPUTE_NODES > /tmp/compute_nodes.txt
       wait_script: |
         # This script runs in the main bootstrap container just before the
@@ -261,11 +261,16 @@ network:
       enabled: false
       port: 30682
   ssh:
-    name: "nova-ssh"
-    port: 8022
-  sshd:
     enabled: false
-    from_subnet: 0.0.0.0/24
+    port: 8022
+    from_subnet: 0.0.0.0/0
+    key_types:
+      - rsa
+      - dsa
+      - ecdsa
+      - ed25519
+    private_key: 'null'
+    public_key: 'null'
 
 dependencies:
   dynamic:
@@ -371,6 +376,7 @@ dependencies:
       jobs:
         - nova-db-sync
         - nova-rabbit-init
+        - placement-ks-endpoints
       services:
         - endpoint: internal
           service: oslo_messaging
@@ -401,6 +407,7 @@ dependencies:
       jobs:
         - nova-db-sync
         - nova-rabbit-init
+        - placement-ks-endpoints
       services:
         - endpoint: internal
           service: oslo_messaging
@@ -471,6 +478,7 @@ dependencies:
       jobs:
         - nova-db-sync
         - nova-rabbit-init
+        - placement-ks-endpoints
       services:
         - endpoint: internal
           service: oslo_messaging
@@ -513,13 +521,6 @@ console:
     vncproxy:
       # IF blank, search default routing interface
       vncserver_proxyclient_interface:
-
-ssh:
-  key_types:
-    - rsa
-    - dsa
-    - ecdsa
-    - ed25519
 
 ceph_client:
   configmap: ceph-etc
@@ -608,13 +609,6 @@ conf:
       user: "cinder"
       keyring: null
       secret_uuid: 457eb676-33da-42ec-9a8c-9293d545c337
-  ssh: |
-    Host *
-      StrictHostKeyChecking no
-      UserKnownHostsFile /dev/null
-      Port {{ .Values.network.ssh.port }}
-  ssh_private: 'null'
-  ssh_public: 'null'
   rally_tests:
     run_tempest: false
     clean_up: |
@@ -908,7 +902,7 @@ conf:
     os_compute_api:os-attach-interfaces:discoverable: "@"
     os_compute_api:os-attach-interfaces:create: rule:admin_or_owner
     os_compute_api:os-attach-interfaces:delete: rule:admin_or_owner
-    os_compute_api:os-availability-zone:list: rule:admin_or_owner
+    os_compute_api:os-availability-zone:list: "@"
     os_compute_api:os-availability-zone:discoverable: "@"
     os_compute_api:os-availability-zone:detail: rule:admin_api
     os_compute_api:os-baremetal-nodes:discoverable: "@"
@@ -1016,7 +1010,7 @@ conf:
     os_compute_api:os-keypairs:show: rule:admin_api or user_id:%(user_id)s
     os_compute_api:os-keypairs: rule:admin_or_owner
     os_compute_api:limits:discoverable: "@"
-    os_compute_api:limits: rule:admin_or_owner
+    os_compute_api:limits: "@"
     os_compute_api:os-lock-server:discoverable: "@"
     os_compute_api:os-lock-server:lock: rule:admin_or_owner
     os_compute_api:os-lock-server:unlock:unlock_override: rule:admin_api
@@ -1731,7 +1725,7 @@ conf:
       auth_type: password
       send_service_user_token: false
     libvirt:
-      connection_uri: "qemu+tcp://127.0.0.1/system"
+      connection_uri: "qemu+unix:///system?socket=/run/libvirt/libvirt-sock"
       images_type: qcow2
       images_rbd_pool: vms
       images_rbd_ceph_conf: /etc/ceph/ceph.conf
@@ -1770,7 +1764,7 @@ conf:
         - default
     logger_root:
       level: WARNING
-      handlers: stdout
+      handlers: 'null'
     logger_nova:
       level: INFO
       handlers:
@@ -1849,8 +1843,8 @@ secrets:
     admin: nova-db-api-admin
     nova: nova-db-api-user
   oslo_db_cell0:
-    admin: nova-db-api-admin
-    nova: nova-db-api-user
+    admin: nova-db-cell0-admin
+    nova: nova-db-cell0-user
   oslo_messaging:
     admin: nova-rabbitmq-admin
     nova: nova-rabbitmq-user
@@ -1897,6 +1891,9 @@ endpoints:
       admin:
         username: root
         password: password
+        secret:
+          tls:
+            internal: mariadb-tls-direct
       nova:
         username: nova
         password: password
@@ -2335,9 +2332,6 @@ pod:
           enabled: True
           params:
             initialDelaySeconds: 30
-  user:
-    nova:
-      uid: 42424
   security_context:
     nova:
       pod:
@@ -2346,6 +2340,9 @@ pod:
         nova_compute_init:
           readOnlyRootFilesystem: true
           runAsUser: 0
+        tungstenfabric_compute_init:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         ceph_perms:
           readOnlyRootFilesystem: true
           runAsUser: 0
@@ -2403,6 +2400,40 @@ pod:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
         nova_spiceproxy:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    bootstrap:
+      pod:
+        runAsUser: 42424
+      container:
+        nova_wait_for_computes_init:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        bootstrap:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    nova_cell_setup:
+      pod:
+        runAsUser: 42424
+      container:
+        nova_cell_setup_init:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        nova_cell_setup:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    cell_setup:
+      pod:
+        runAsUser: 42424
+      container:
+        nova_cell_setup:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    service_cleaner:
+      pod:
+        runAsUser: 42424
+      container:
+        nova_service_cleaner:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
   use_fqdn:
@@ -2744,6 +2775,7 @@ manifests:
   pod_rally_test: true
   network_policy: false
   secret_db_api: true
+  secret_db_cell0: true
   secret_db: true
   secret_ingress_tls: true
   secret_keystone: true

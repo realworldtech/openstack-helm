@@ -22,4 +22,11 @@ cat <<EOF > /etc/ceph/ceph.client.${RBD_USER}.keyring
     key = $(cat /tmp/client-keyring)
 EOF
 
+{{- if and .Values.ceph_client.enable_external_ceph_backend .Values.ceph_client.external_ceph.rbd_user }}
+cat <<EOF > /etc/ceph/ceph.client.${EXTERNAL_RBD_USER}.keyring
+[client.${EXTERNAL_RBD_USER}]
+    key = $(cat /tmp/external-ceph-client-keyring)
+EOF
+{{- end }}
+
 exit 0

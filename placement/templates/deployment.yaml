@@ -45,8 +45,10 @@ spec:
 {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" | indent 8 }}
         configmap-bin-hash: {{ tuple "configmap-bin.yaml" . | include "helm-toolkit.utils.hash" }}
         configmap-etc-hash: {{ tuple "configmap-etc.yaml" . | include "helm-toolkit.utils.hash" }}
+{{ dict "envAll" $envAll "podName" "placement-api" "containerNames" (list "placement-api" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
       serviceAccountName: {{ $serviceAccountName }}
+{{ dict "envAll" $envAll "application" "placement" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       affinity:
 {{ tuple $envAll "placement" "api" | include "helm-toolkit.snippets.kubernetes_pod_anti_affinity" | indent 8 }}
       nodeSelector:
@@ -58,6 +60,7 @@ spec:
         - name: placement-api
 {{ tuple $envAll "placement" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "placement" "container" "placement_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/placement-api.sh
             - start
@@ -71,7 +74,7 @@ spec:
             - name: p-api
               containerPort: {{ tuple "placement" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           readinessProbe:
-            #NOTE(portdirect): use tcpSocket check as HTTP will return 401
+            # NOTE(portdirect): use tcpSocket check as HTTP will return 401
             tcpSocket:
               port: {{ tuple "placement" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
             initialDelaySeconds: 15
@@ -94,10 +97,12 @@ spec:
               mountPath: /etc/placement/placement.conf
               subPath: placement.conf
               readOnly: true
+            {{- if .Values.conf.placement.DEFAULT.log_config_append }}
             - name: placement-etc
               mountPath: {{ .Values.conf.placement.DEFAULT.log_config_append }}
               subPath: {{ base .Values.conf.placement.DEFAULT.log_config_append }}
               readOnly: true
+            {{- end }}
             - name: placement-etc
               mountPath: /etc/placement/policy.yaml
               subPath: policy.yaml
@@ -106,6 +111,7 @@ spec:
               mountPath: /etc/apache2/conf-enabled/wsgi-placement.conf
               subPath: wsgi-placement.conf
               readOnly: true
+{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.placement.api.internal "path" "/etc/placement/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_placement.volumeMounts }}{{ toYaml $mounts_placement.volumeMounts | indent 12 }}{{ end }}
       volumes:
@@ -121,6 +127,7 @@ spec:
           secret:
             secretName: placement-etc
             defaultMode: 0444
+{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.placement.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_placement.volumes }}{{ toYaml $mounts_placement.volumes | indent 8 }}{{ end }}
 {{- end }}

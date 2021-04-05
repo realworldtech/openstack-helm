@@ -9,6 +9,26 @@ Deployment With Ceph
 Deploy Ceph
 ^^^^^^^^^^^
 
+We are going to install Ceph OSDs backed by loopback devices as this will
+help us not to attach extra disks, in case if you have enough disks
+on the node then feel free to skip creating loopback devices by exporting
+CREATE_LOOPBACK_DEVICES_FOR_CEPH to false and export the  block devices names
+as environment variables(CEPH_OSD_DATA_DEVICE and CEPH_OSD_DB_WAL_DEVICE).
+
+We are also going to seperate Ceph metadata and data onto a different devices
+to replicate the ideal scenario of fast disks for metadata and slow disks to store data.
+You can change this as per your design by referring to the documentation explained in
+../openstack-helm-infra/ceph-osd/values.yaml
+
+This script will create two loopback devices for Ceph as one disk for OSD data
+and other disk for block DB and block WAL. If default devices (loop0 and loop1) are busy in
+your case, feel free to change them by exporting environment variables(CEPH_OSD_DATA_DEVICE
+and CEPH_OSD_DB_WAL_DEVICE).
+
+.. note::
+  if you are rerunning the below script then make sure to skip the loopback device creation
+  by exporting CREATE_LOOPBACK_DEVICES_FOR_CEPH to false.
+
 .. literalinclude:: ../../../../tools/deployment/developer/ceph/040-ceph.sh
     :language: shell
     :lines: 1,17-

@@ -17,12 +17,6 @@
 # OpenStack Helm jobs
 # These will move with their playbooks inside the
 # openstack-helm-infra repository
-- job:
-    name: openstack-helm-functional-temp
-    irrelevant-files:
-      - ^.*\.rst$
-      - ^doc/.*$
-      - ^releasenotes/.*$
 
 - job:
     name: openstack-helm-bandit
@@ -37,31 +31,33 @@
 
 - job:
     name: openstack-helm-chart-deploy
-    parent: openstack-helm-functional-temp
+    parent: openstack-helm-infra-functional
     roles:
       - zuul: openstack/openstack-helm-infra
     timeout: 7200
     vars:
       zuul_osh_infra_relative_path: ../openstack-helm-infra/
       osh_openstack_release: stein
+      gate_scripts: []
     pre-run:
       - tools/gate/playbooks/osh-infra-upgrade-host.yaml
       - tools/gate/playbooks/osh-infra-setup-firewall.yaml
     post-run: tools/gate/playbooks/osh-infra-collect-logs.yaml
     required-projects:
       - openstack/openstack-helm-infra
+      - openstack/openstack-helm
     nodeset: openstack-helm-single-node
 
 - job:
     name: openstack-helm-keystone-ldap
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     vars:
       osh_params:
         openstack_release: stein
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: ldap
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
         - ./tools/deployment/common/deploy-k8s.sh
@@ -77,26 +73,26 @@
 - job:
     name: openstack-helm-cinder
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     vars:
       osh_params:
         openstack_release: stein
         container_distro_name: ubuntu
         container_distro_version: bionic
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
-        - ./tools/deployment/common/setup-ceph-loopback-device.sh
         - ./tools/deployment/common/deploy-k8s.sh
-        - ./tools/deployment/common/setup-client.sh
-        - ./tools/scripts/tls/cert-manager.sh
-        - ./tools/deployment/component/ceph/ceph.sh
-        - ./tools/deployment/component/ceph/ceph-ns-activate.sh
-        - ./tools/deployment/component/common/ingress.sh
-        - ./tools/deployment/component/common/mariadb.sh
-        - ./tools/deployment/component/common/memcached.sh
-        - ./tools/deployment/component/common/rabbitmq.sh
+        - - ./tools/deployment/common/setup-client.sh
+          - ./tools/deployment/component/ceph/ceph.sh
+        - - ./tools/deployment/component/ceph/ceph-ns-activate.sh
+          - ./tools/deployment/component/common/ingress.sh
+        - - ./tools/deployment/component/common/mariadb.sh
+          - ./tools/deployment/component/common/memcached.sh
+          - ./tools/deployment/component/common/rabbitmq.sh
         - ./tools/deployment/component/keystone/keystone.sh
         - ./tools/deployment/component/cinder/cinder.sh
+        - ./tools/deployment/common/force-cronjob-run.sh
+
 - job:
     name: openstack-helm-cinder-pike-ubuntu_xenial
     parent: openstack-helm-cinder
@@ -165,32 +161,47 @@
         container_distro_version: bionic
 
 - job:
+    name: openstack-helm-cinder-ussuri-ubuntu_bionic
+    parent: openstack-helm-cinder
+    vars:
+      osh_params:
+        openstack_release: ussuri
+        container_distro_name: ubuntu
+        container_distro_version: bionic
+
+- job:
     name: openstack-helm-compute-kit
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     vars:
       osh_params:
         openstack_release: stein
         container_distro_name: ubuntu
         container_distro_version: bionic
+      run_helm_tests: "no"
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
         - ./tools/deployment/common/deploy-k8s.sh
-        - ./tools/deployment/common/setup-client.sh
-        - ./tools/scripts/tls/cert-manager.sh
-        - ./tools/deployment/component/common/ingress.sh
-        - ./tools/deployment/component/common/mariadb.sh
-        - ./tools/deployment/component/common/memcached.sh
-        - ./tools/deployment/component/common/rabbitmq.sh
-        - ./tools/deployment/component/nfs-provisioner/nfs-provisioner.sh
-        - ./tools/deployment/component/keystone/keystone.sh
-        - ./tools/deployment/component/heat/heat.sh
-        - ./tools/deployment/component/glance/glance.sh
-        - ./tools/deployment/component/compute-kit/openvswitch.sh
+        - - ./tools/deployment/common/setup-client.sh
+          - ./tools/deployment/component/common/ingress.sh
+        - - ./tools/deployment/component/common/rabbitmq.sh
+          - ./tools/deployment/component/common/mariadb.sh
+          - ./tools/deployment/component/common/memcached.sh
+        - - ./tools/deployment/component/nfs-provisioner/nfs-provisioner.sh
+          - ./tools/deployment/component/keystone/keystone.sh
+        - - ./tools/deployment/component/heat/heat.sh
+          - ./tools/deployment/component/glance/glance.sh
+          - ./tools/deployment/component/compute-kit/openvswitch.sh
         - ./tools/deployment/component/compute-kit/libvirt.sh
         - ./tools/deployment/component/compute-kit/compute-kit.sh
+        - - export OSH_TEST_TIMEOUT=1200;./tools/deployment/common/run-helm-tests.sh neutron
+          - ./tools/deployment/common/run-helm-tests.sh nova;
+            ./tools/deployment/common/run-helm-tests.sh glance;
+            ./tools/deployment/common/run-helm-tests.sh keystone;
         - ./tools/deployment/developer/common/170-setup-gateway.sh
-        - ./tools/deployment/developer/common/900-use-it.sh
+        - - ./tools/deployment/developer/common/900-use-it.sh
+          - ./tools/deployment/common/force-cronjob-run.sh
+
 - job:
     name: openstack-helm-compute-kit-pike-ubuntu_xenial
     parent: openstack-helm-compute-kit
@@ -259,23 +270,31 @@
         container_distro_version: bionic
 
 - job:
-    name: openstack-helm-horizon-stein-ubuntu_bionic
+    name: openstack-helm-compute-kit-ussuri-ubuntu_bionic
+    parent: openstack-helm-compute-kit
+    vars:
+      osh_params:
+        openstack_release: ussuri
+        container_distro_name: ubuntu
+        container_distro_version: bionic
+
+- job:
+    name: openstack-helm-horizon-train-ubuntu_bionic
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     files:
       - ^horizon/.*$
       - ^zuul\.d/.*$
       - ^tools/deployment/component/horizon/.*$
     vars:
       osh_params:
-        openstack_release: stein
+        openstack_release: train
         container_distro_name: ubuntu
         container_distro_version: bionic
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
         - ./tools/deployment/common/deploy-k8s.sh
         - ./tools/deployment/common/setup-client.sh
-        - ./tools/scripts/tls/cert-manager.sh
         - ./tools/deployment/component/common/ingress.sh
         - ./tools/deployment/component/common/mariadb.sh
         - ./tools/deployment/component/common/memcached.sh
@@ -286,40 +305,45 @@
 - job:
     name: openstack-helm-tls
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
-    nodeset: openstack-helm-single-32GB-node
+    nodeset: openstack-helm-single-16GB-node
     vars:
       osh_params:
         openstack_release: stein
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: tls
+      run_helm_tests: "no"
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
-        - ./tools/deployment/common/setup-ceph-loopback-device.sh
         - ./tools/deployment/common/deploy-k8s.sh
-        - ./tools/deployment/common/setup-client.sh
-        - ./tools/scripts/tls/cert-manager.sh
+        - - ./tools/deployment/common/setup-client.sh
+          - ./tools/scripts/tls/cert-manager.sh
         - ./tools/deployment/component/ceph/ceph.sh
         - ./tools/deployment/component/ceph/ceph-ns-activate.sh
         - ./tools/deployment/component/common/ingress.sh
-        - ./tools/deployment/component/common/mariadb.sh
-        - ./tools/deployment/component/common/memcached.sh
-        - ./tools/deployment/component/common/rabbitmq.sh
+        - - ./tools/deployment/component/common/mariadb.sh
+          - ./tools/deployment/component/common/memcached.sh
+          - ./tools/deployment/component/common/rabbitmq.sh
         - ./tools/deployment/component/keystone/keystone.sh
-        - ./tools/deployment/component/cinder/cinder.sh
-        - ./tools/deployment/component/heat/heat.sh
-        - ./tools/deployment/component/glance/glance.sh
-        - ./tools/deployment/component/compute-kit/openvswitch.sh
+        - - ./tools/deployment/component/cinder/cinder.sh
+          - ./tools/deployment/component/heat/heat.sh
+          - ./tools/deployment/component/glance/glance.sh
+          - ./tools/deployment/component/compute-kit/openvswitch.sh
         - ./tools/deployment/component/compute-kit/libvirt.sh
         - ./tools/deployment/component/compute-kit/compute-kit.sh
+        - - export OSH_TEST_TIMEOUT=1200;./tools/deployment/common/run-helm-tests.sh neutron
+          - ./tools/deployment/common/run-helm-tests.sh nova;
+            ./tools/deployment/common/run-helm-tests.sh glance;
+            ./tools/deployment/common/run-helm-tests.sh keystone;
+            ./tools/deployment/common/run-helm-tests.sh cinder;
         - ./tools/deployment/developer/common/170-setup-gateway.sh
-        - ./tools/deployment/developer/common/900-use-it.sh
+        - - ./tools/deployment/developer/common/900-use-it.sh
+          - ./tools/deployment/common/force-cronjob-run.sh
 
 - job:
     name: openstack-helm-apparmor
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     timeout: 9600
     vars:
       osh_params:
@@ -327,6 +351,7 @@
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: apparmor
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
         - ./tools/deployment/common/deploy-k8s.sh
@@ -350,7 +375,6 @@
 - job:
     name: openstack-helm-apparmor-cinder
     parent: openstack-helm-chart-deploy
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     timeout: 9600
     vars:
       osh_params:
@@ -358,9 +382,9 @@
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: apparmor
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
-        - ./tools/deployment/common/setup-ceph-loopback-device.sh
         - ./tools/deployment/common/deploy-k8s.sh
         - ./tools/deployment/common/setup-client.sh
         - ./tools/deployment/component/ceph/ceph.sh
@@ -376,13 +400,13 @@
     name: openstack-helm-netpol-compute-kit-train
     parent: openstack-helm-chart-deploy
     timeout: 7200
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     vars:
       osh_params:
         openstack_release: train
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: netpol
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
         - ./tools/deployment/common/deploy-k8s.sh
@@ -404,11 +428,45 @@
         - ./tools/deployment/common/openstack-exporter.sh
         - ./tools/deployment/developer/common/900-use-it.sh
         - ./tools/deployment/common/test-networkpolicy.sh
+
 - job:
-    name: openstack-helm-tungsten-fabric
+    name: openstack-helm-netpol-compute-kit-ussuri
+    parent: openstack-helm-chart-deploy
+    timeout: 7200
+    vars:
+      osh_params:
+        openstack_release: ussuri
+        container_distro_name: ubuntu
+        container_distro_version: bionic
+        feature_gates: netpol
+      gate_scripts_relative_path: ../openstack-helm
+      gate_scripts:
+        - ./tools/deployment/common/install-packages.sh
+        - ./tools/deployment/common/deploy-k8s.sh
+        - ./tools/deployment/common/setup-client.sh
+        - ./tools/deployment/component/common/ingress.sh
+        - ./tools/deployment/common/lockdown-netpol.sh
+        - ./tools/deployment/component/common/mariadb.sh
+        - ./tools/deployment/component/common/memcached.sh
+        - ./tools/deployment/component/common/rabbitmq.sh
+        - ./tools/deployment/component/nfs-provisioner/nfs-provisioner.sh
+        - ./tools/deployment/component/keystone/keystone.sh
+        - ./tools/deployment/component/heat/heat.sh
+        - ./tools/deployment/component/glance/glance.sh
+        - ./tools/deployment/component/compute-kit/openvswitch.sh
+        - ./tools/deployment/component/compute-kit/libvirt.sh
+        - ./tools/deployment/component/compute-kit/compute-kit.sh
+        - ./tools/deployment/developer/common/170-setup-gateway.sh
+        - ./tools/deployment/component/horizon/horizon.sh
+        - ./tools/deployment/common/openstack-exporter.sh
+        - ./tools/deployment/developer/common/900-use-it.sh
+        - ./tools/deployment/common/test-networkpolicy.sh
+
+- job:
+    name: openstack-helm-tungsten-fabric-train
     parent: openstack-helm-compute-kit
     timeout: 9600
-    nodeset: openstack-helm-single-32GB-node
+    nodeset: openstack-helm-single-16GB-node
     roles:
       - zuul: openstack/openstack-helm-infra
     required-projects:
@@ -420,35 +478,72 @@
         openstack_release: train
         container_distro_name: ubuntu
         container_distro_version: bionic
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
-        - ./tools/deployment/common/deploy-k8s.sh
-        - ./tools/deployment/common/setup-client.sh
+        - - ./tools/deployment/common/deploy-k8s.sh
+          - ./tools/deployment/common/setup-client.sh
         - ./tools/deployment/component/common/ingress.sh
-        - ./tools/deployment/component/common/mariadb.sh
-        - ./tools/deployment/component/common/memcached.sh
-        - ./tools/deployment/component/common/rabbitmq.sh
-        - ./tools/deployment/component/nfs-provisioner/nfs-provisioner.sh
-        - ./tools/deployment/component/compute-kit/tungsten-fabric.sh checkdns
-        - ./tools/deployment/component/compute-kit/tungsten-fabric.sh setupdns
-        - ./tools/deployment/component/keystone/keystone.sh
-        - ./tools/deployment/component/heat/heat.sh
-        - ./tools/deployment/component/glance/glance.sh
-        - ./tools/deployment/component/compute-kit/tungsten-fabric.sh prepare
-        - ./tools/deployment/component/compute-kit/libvirt.sh
+        - - ./tools/deployment/component/common/mariadb.sh
+          - ./tools/deployment/component/common/memcached.sh
+          - ./tools/deployment/component/common/rabbitmq.sh
+          - ./tools/deployment/component/nfs-provisioner/nfs-provisioner.sh
+        - - ./tools/deployment/component/compute-kit/tungsten-fabric.sh checkdns
+          - ./tools/deployment/component/compute-kit/tungsten-fabric.sh setupdns
+          - ./tools/deployment/component/keystone/keystone.sh
+        - - ./tools/deployment/component/heat/heat.sh
+          - ./tools/deployment/component/glance/glance.sh
+          - ./tools/deployment/component/compute-kit/tungsten-fabric.sh prepare
+          - ./tools/deployment/component/compute-kit/libvirt.sh
+        - ./tools/deployment/component/compute-kit/compute-kit.sh
+        - ./tools/deployment/component/compute-kit/tungsten-fabric.sh deploy
+
+- job:
+    name: openstack-helm-tungsten-fabric-ussuri
+    parent: openstack-helm-compute-kit
+    timeout: 9600
+    nodeset: openstack-helm-single-16GB-node
+    roles:
+      - zuul: openstack/openstack-helm-infra
+    required-projects:
+      - openstack/openstack-helm-infra
+    vars:
+      zuul_osh_infra_relative_path: ../openstack-helm-infra/
+      osh_params:
+        feature_gates: tf
+        openstack_release: ussuri
+        container_distro_name: ubuntu
+        container_distro_version: bionic
+      gate_scripts_relative_path: ../openstack-helm
+      gate_scripts:
+        - ./tools/deployment/common/install-packages.sh
+        - - ./tools/deployment/common/deploy-k8s.sh
+          - ./tools/deployment/common/setup-client.sh
+        - ./tools/deployment/component/common/ingress.sh
+        - - ./tools/deployment/component/common/mariadb.sh
+          - ./tools/deployment/component/common/memcached.sh
+          - ./tools/deployment/component/common/rabbitmq.sh
+          - ./tools/deployment/component/nfs-provisioner/nfs-provisioner.sh
+        - - ./tools/deployment/component/compute-kit/tungsten-fabric.sh checkdns
+          - ./tools/deployment/component/compute-kit/tungsten-fabric.sh setupdns
+          - ./tools/deployment/component/keystone/keystone.sh
+        - - ./tools/deployment/component/heat/heat.sh
+          - ./tools/deployment/component/glance/glance.sh
+          - ./tools/deployment/component/compute-kit/tungsten-fabric.sh prepare
+          - ./tools/deployment/component/compute-kit/libvirt.sh
         - ./tools/deployment/component/compute-kit/compute-kit.sh
         - ./tools/deployment/component/compute-kit/tungsten-fabric.sh deploy
 - job:
     name: openstack-helm-netpol-compute-kit
     parent: openstack-helm-chart-deploy
     timeout: 7200
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     vars:
       osh_params:
         openstack_release: stein
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: netpol
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
         - ./tools/deployment/common/deploy-k8s.sh
@@ -475,16 +570,15 @@
     name: openstack-helm-netpol-cinder
     parent: openstack-helm-chart-deploy
     timeout: 7200
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     vars:
       osh_params:
         openstack_release: stein
         container_distro_name: ubuntu
         container_distro_version: bionic
         feature_gates: netpol
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/common/install-packages.sh
-        - ./tools/deployment/common/setup-ceph-loopback-device.sh
         - ./tools/deployment/common/deploy-k8s.sh
         - ./tools/deployment/common/setup-client.sh
         - ./tools/deployment/component/ceph/ceph.sh
@@ -502,7 +596,7 @@
 
 - job:
     name: openstack-helm-multinode-temp
-    parent: openstack-helm-functional-temp
+    parent: openstack-helm-infra-functional
     roles:
       - zuul: openstack/openstack-helm-infra
     vars:
@@ -522,7 +616,7 @@
 - job:
     timeout: 9600
     name: openstack-helm-armada-deploy
-    parent: openstack-helm-functional-temp
+    parent: openstack-helm-infra-functional
     nodeset: openstack-helm-five-node-ubuntu
     roles:
       - zuul: openstack/openstack-helm-infra
@@ -531,7 +625,6 @@
       - tools/gate/playbooks/osh-infra-deploy-docker.yaml
       - tools/gate/playbooks/osh-infra-build.yaml
       - tools/gate/playbooks/osh-infra-deploy-k8s.yaml
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     post-run:
       - tools/gate/playbooks/osh-infra-collect-logs.yaml
       - tools/gate/playbooks/gather-armada-manifests.yaml
@@ -539,6 +632,7 @@
       - openstack/openstack-helm-infra
     vars:
       zuul_osh_infra_relative_path: ../openstack-helm-infra/
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/armada/010-armada-host-setup.sh
         - ./tools/deployment/armada/015-armada-build.sh
@@ -549,7 +643,7 @@
 - job:
     timeout: 9600
     name: openstack-helm-armada-update-uuid
-    parent: openstack-helm-functional-temp
+    parent: openstack-helm-infra-functional
     nodeset: openstack-helm-five-node-ubuntu
     roles:
       - zuul: openstack/openstack-helm-infra
@@ -558,7 +652,6 @@
       - tools/gate/playbooks/osh-infra-deploy-docker.yaml
       - tools/gate/playbooks/osh-infra-build.yaml
       - tools/gate/playbooks/osh-infra-deploy-k8s.yaml
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     post-run:
       - tools/gate/playbooks/osh-infra-collect-logs.yaml
       - tools/gate/playbooks/gather-armada-manifests.yaml
@@ -566,6 +659,7 @@
       - openstack/openstack-helm-infra
     vars:
       zuul_osh_infra_relative_path: ../openstack-helm-infra/
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/armada/010-armada-host-setup.sh
         - ./tools/deployment/armada/015-armada-build.sh
@@ -577,7 +671,7 @@
 - job:
     timeout: 10800
     name: openstack-helm-armada-update-passwords
-    parent: openstack-helm-functional-temp
+    parent: openstack-helm-infra-functional
     nodeset: openstack-helm-five-node-ubuntu
     roles:
       - zuul: openstack/openstack-helm-infra
@@ -586,7 +680,6 @@
       - tools/gate/playbooks/osh-infra-deploy-docker.yaml
       - tools/gate/playbooks/osh-infra-build.yaml
       - tools/gate/playbooks/osh-infra-deploy-k8s.yaml
-    run: tools/gate/playbooks/osh-gate-runner.yaml
     post-run:
       - tools/gate/playbooks/osh-infra-collect-logs.yaml
       - tools/gate/playbooks/gather-armada-manifests.yaml
@@ -594,6 +687,7 @@
       - openstack/openstack-helm-infra
     vars:
       zuul_osh_infra_relative_path: ../openstack-helm-infra/
+      gate_scripts_relative_path: ../openstack-helm
       gate_scripts:
         - ./tools/deployment/armada/010-armada-host-setup.sh
         - ./tools/deployment/armada/015-armada-build.sh
@@ -629,3 +723,41 @@
     parent: openstack-helm-multinode-temp
     nodeset: openstack-helm-five-node-ubuntu
     run: tools/gate/playbooks/multinode-tempest-deploy.yaml
+
+- job:
+    timeout: 10800
+    name: openstack-helm-multinode-compute-kit-train-ubuntu_bionic
+    parent: openstack-helm-chart-deploy
+    nodeset: openstack-helm-five-node-ubuntu
+    vars:
+      zuul_osh_infra_relative_path: ../openstack-helm-infra/
+      osh_params:
+        openstack_release: train
+        container_distro_name: ubuntu
+        container_distro_version: bionic
+    pre-run:
+      - tools/gate/playbooks/multinode-base.yaml
+      - tools/gate/playbooks/osh-infra-upgrade-host.yaml
+      - tools/gate/playbooks/osh-infra-deploy-docker.yaml
+      - tools/gate/playbooks/osh-infra-build.yaml
+      - tools/gate/playbooks/osh-infra-deploy-k8s.yaml
+    run: tools/gate/playbooks/multinode-deploy-compute-kit.yaml
+
+- job:
+    timeout: 9600
+    name: openstack-helm-multinode-cinder-train-ubuntu_bionic
+    parent: openstack-helm-chart-deploy
+    nodeset: openstack-helm-five-node-ubuntu
+    vars:
+      zuul_osh_infra_relative_path: ../openstack-helm-infra/
+      osh_params:
+        openstack_release: train
+        container_distro_name: ubuntu
+        container_distro_version: bionic
+    pre-run:
+      - tools/gate/playbooks/multinode-base.yaml
+      - tools/gate/playbooks/osh-infra-upgrade-host.yaml
+      - tools/gate/playbooks/osh-infra-deploy-docker.yaml
+      - tools/gate/playbooks/osh-infra-build.yaml
+      - tools/gate/playbooks/osh-infra-deploy-k8s.yaml
+    run: tools/gate/playbooks/multinode-deploy-cinder.yaml

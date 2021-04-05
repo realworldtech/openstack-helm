@@ -42,7 +42,7 @@ release_group: null
 
 images:
   tags:
-    test: docker.io/xrally/xrally-openstack:1.3.0
+    test: docker.io/xrally/xrally-openstack:2.0.0
     db_init: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     cinder_db_sync: docker.io/openstackhelm/cinder:stein-ubuntu_bionic
     db_drop: docker.io/openstackhelm/heat:stein-ubuntu_bionic
@@ -77,6 +77,13 @@ jobs:
 
 pod:
   security_context:
+    volume_usage_audit:
+      pod:
+        runAsUser: 42424
+      container:
+        cinder_volume_usage_audit:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
     cinder_api:
       pod:
         runAsUser: 42424
@@ -134,6 +141,30 @@ pod:
           readOnlyRootFilesystem: true
         cinder_volume:
           readOnlyRootFilesystem: true
+    storage_init:
+      pod:
+        runAsUser: 42424
+      container:
+        ceph_keyring_placement:
+          runAsUser: 0
+          readOnlyRootFilesystem: true
+        cinder_backup_storage_init:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    clean:
+      pod:
+        runAsUser: 42424
+      container:
+        cinder_volume_rbd_secret_clean:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    create_internal_tenant:
+      pod:
+        runAsUser: 42424
+      container:
+        create_internal_tenant:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
   affinity:
     anti:
       type:
@@ -144,6 +175,7 @@ pod:
         default: 10
   useHostNetwork:
     volume: false
+    backup: false
   mounts:
     cinder_api:
       init_container: null
@@ -345,9 +377,22 @@ network:
       port: 30877
 
 ceph_client:
+  # enable this when there is a need to create second ceph backed pointing
+  # to external ceph cluster
+  enable_external_ceph_backend: false
+  # change this in case of first ceph backend name pointing to internal ceph cluster
+  # is diffrent
+  internal_ceph_backend: rbd1
   configmap: ceph-etc
   user_secret_name: pvc-ceph-client-key
-
+  external_ceph:
+    # Only when enable_external_ceph_backend is true and rbd_user is NOT null
+    # secret for external ceph keyring will be created.
+    rbd_user: null
+    rbd_user_keyring: null
+    conf:
+      global: null
+      osd: null
 conf:
   paste:
     composite:osapi_volume:
@@ -869,6 +914,9 @@ conf:
       rabbit_ha_queues: true
     coordination:
       backend_url: file:///var/lib/cinder/coordination
+    service_user:
+      auth_type: password
+      send_service_user_token: false
   logging:
     loggers:
       keys:
@@ -885,7 +933,7 @@ conf:
         - default
     logger_root:
       level: WARNING
-      handlers: stdout
+      handlers: 'null'
     logger_cinder:
       level: INFO
       handlers:
@@ -1034,9 +1082,8 @@ backup:
     enabled: false
     admin_keyring: null
     conf:
-      global:
-        mon_host: null
-      osd:
+      global: null
+      osd: null
   posix:
     volume:
       class_name: general
@@ -1189,6 +1236,7 @@ secrets:
   rbd:
     backup: cinder-backup-rbd-keyring
     volume: cinder-volume-rbd-keyring
+    volume_external: cinder-volume-external-rbd-keyring
   oslo_messaging:
     admin: cinder-rabbitmq-admin
     cinder: cinder-rabbitmq-user
@@ -1354,6 +1402,9 @@ endpoints:
       admin:
         username: root
         password: password
+        secret:
+          tls:
+            internal: mariadb-tls-direct
       cinder:
         username: cinder
         password: password

@@ -89,7 +89,7 @@ spec:
 {{ dict "envAll" $envAll "application" "nova" "container" "nova_compute_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
             - name: NOVA_USER_UID
-              value: "{{ .Values.pod.user.nova.uid }}"
+              value: "{{ .Values.pod.security_context.nova.pod.runAsUser }}"
           command:
             - /tmp/nova-compute-init.sh
           terminationMessagePath: /var/log/termination-log
@@ -211,13 +211,36 @@ spec:
           image: {{ .Values.images.tags.tf_compute_init }}
           imagePullPolicy: {{ .Values.images.pull_policy }}
 {{ tuple $envAll $envAll.Values.pod.resources.compute | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
-          securityContext:
-            runAsUser: {{ .Values.pod.user.nova.uid }}
+{{ dict "envAll" $envAll "application" "nova" "container" "tungstenfabric_compute_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           volumeMounts:
             - name: tf-plugin-shared
               mountPath: /opt/plugin
             - name: tf-plugin-bin
               mountPath: /opt/plugin/bin
+        {{- end }}
+        {{- if .Values.network.ssh.enabled }}
+        - name: nova-compute-ssh-init
+{{ tuple $envAll "nova_compute_ssh" | include "helm-toolkit.snippets.image" | indent 10 }}
+{{ tuple $envAll $envAll.Values.pod.resources.ssh | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+          terminationMessagePath: /var/log/termination-log
+          env:
+            - name: SSH_PORT
+              value: {{ .Values.network.ssh.port | quote }}
+          command:
+            - /tmp/ssh-init.sh
+          volumeMounts:
+            - name: varlibnova
+              mountPath: /var/lib/nova
+            - name: nova-ssh
+              mountPath: /tmp/nova-ssh/authorized_keys
+              subPath: public-key
+            - name: nova-ssh
+              mountPath: /tmp/nova-ssh/id_rsa
+              subPath: private-key
+            - name: nova-bin
+              mountPath: /tmp/ssh-init.sh
+              subPath: ssh-init.sh
+              readOnly: true
         {{- end }}
       containers:
         - name: nova-compute
@@ -251,6 +274,8 @@ spec:
             - /tmp/nova-compute.sh
           terminationMessagePath: /var/log/termination-log
           volumeMounts:
+            - name: dev-pts
+              mountPath: /dev/pts
             - name: pod-tmp
               mountPath: /tmp
             - name: nova-bin
@@ -304,9 +329,6 @@ spec:
               mountPath: /root/.ssh/config
               subPath: ssh-config
               readOnly: true
-            - name: nova-ssh
-              mountPath: /root/.ssh/id_rsa
-              subPath: ssh-key-private
             {{- if .Values.conf.ceph.enabled }}
             - name: etcceph
               mountPath: /etc/ceph
@@ -346,17 +368,18 @@ spec:
             {{- if .Values.conf.enable_iscsi }}
             - name: host-rootfs
               mountPath: /mnt/host-rootfs
+              mountPropagation: HostToContainer
             - name: usrlocalsbin
               mountPath: /usr/local/sbin
             - name: etciscsi
               mountPath: /etc/iscsi
               {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
-              mountPropagation: Bidirectional
+              mountPropagation: HostToContainer
               {{- end }}
             - name: dev
               mountPath: /dev
               {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
-              mountPropagation: Bidirectional
+              mountPropagation: HostToContainer
               {{- end }}
             - name: nova-bin
               mountPath: /usr/local/sbin/iscsiadm
@@ -384,7 +407,7 @@ spec:
             {{- end }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.compute.osapi.internal "path" "/etc/nova/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_nova_compute.volumeMounts }}{{ toYaml $mounts_nova_compute.volumeMounts | indent 12 }}{{ end }}
-        {{- if .Values.network.sshd.enabled }}
+        {{- if .Values.network.ssh.enabled }}
         - name: nova-compute-ssh
 {{ tuple $envAll "nova_compute_ssh" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.ssh | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
@@ -393,7 +416,7 @@ spec:
             privileged: true
           env:
             - name: KEY_TYPES
-              value: {{ include "helm-toolkit.utils.joinListWithComma" .Values.ssh.key_types | quote }}
+              value: {{ include "helm-toolkit.utils.joinListWithComma" .Values.network.ssh.key_types | quote }}
             - name: SSH_PORT
               value: {{ .Values.network.ssh.port | quote }}
 {{- if .Values.manifests.certificates }}
@@ -406,18 +429,8 @@ spec:
             - /tmp/ssh-start.sh
           terminationMessagePath: /var/log/termination-log
           volumeMounts:
-            - name: pod-tmp
-              mountPath: /tmp
             - name: varlibnova
               mountPath: /var/lib/nova
-            - name: varliblibvirt
-              mountPath: /var/lib/libvirt
-            - name: nova-ssh
-              mountPath: /root/.ssh/id_rsa.pub
-              subPath: ssh-key-public
-            - name: nova-ssh
-              mountPath: /root/.ssh/authorized_keys
-              subPath: ssh-key-public
             - name: nova-bin
               mountPath: /tmp/ssh-start.sh
               subPath: ssh-start.sh
@@ -435,10 +448,12 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+        {{- if .Values.network.ssh.enabled }}
         - name: nova-ssh
           secret:
             secretName: nova-ssh
-            defaultMode: 0400
+            defaultMode: 0644
+        {{ end }}
         {{- if .Values.conf.ceph.enabled }}
         - name: etcceph
           hostPath:
@@ -453,6 +468,9 @@ spec:
             secretName: {{ .Values.ceph_client.user_secret_name }}
         {{ end }}
         {{ end }}
+        - name: dev-pts
+          hostPath:
+            path: /dev/pts
         - name: libmodules
           hostPath:
             path: /lib/modules

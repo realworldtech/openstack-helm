@@ -25,25 +25,14 @@ for KEY_TYPE in $KEY_TYPES; do
 done
 IFS=''
 
-mkdir -p ~nova/.ssh
-
-if [[ $(stat -c %U:%G ~nova/.ssh) != "nova:nova" ]]; then
-    chown nova: ~nova/.ssh
-fi
-
-subnet_address="{{- .Values.network.sshd.from_subnet -}}"
+subnet_address="{{- .Values.network.ssh.from_subnet -}}"
 cat > /tmp/sshd_config_extend <<EOF
-
-# This Match block prevents Password Authentication for root user
-Match User root
-    PasswordAuthentication no
-
-# This Match Block is used to allow Root Login exceptions over the
-# internal subnet used by Nova Migrations
+PasswordAuthentication no
 Match Address $subnet_address
     PermitRootLogin without-password
 EOF
 cat /tmp/sshd_config_extend >> /etc/ssh/sshd_config
+
 rm /tmp/sshd_config_extend
 
 exec /usr/sbin/sshd -D -e -o Port=$SSH_PORT

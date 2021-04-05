@@ -13,8 +13,14 @@
 #    under the License.
 set -xe
 
-: ${CEPH_ENABLED:=false}
 : ${RUN_HELM_TESTS:="yes"}
+
+export OS_CLOUD=openstack_helm
+CEPH_ENABLED=false
+if openstack service list -f value -c Type | grep -q "^volume" && \
+    openstack volume type list -f value -c Name | grep -q "rbd"; then
+  CEPH_ENABLED=true
+fi
 
 #NOTE: Get the overrides to use for placement, should placement be deployed.
 case "${OPENSTACK_RELEASE}" in
@@ -148,10 +154,5 @@ if [ "x${RUN_HELM_TESTS}" == "xno" ]; then
     exit 0
 fi
 
-# Delete the test pods if they still exist
-kubectl delete pods -l application=nova,release_group=nova,component=test --namespace=openstack --ignore-not-found
-kubectl delete pods -l application=neutron,release_group=neutron,component=test --namespace=openstack --ignore-not-found
-
-timeout=${OSH_TEST_TIMEOUT:-900}
-helm test nova --timeout $timeout
-helm test neutron --timeout $timeout
+./tools/deployment/common/run-helm-tests.sh nova
+./tools/deployment/common/run-helm-tests.sh neutron

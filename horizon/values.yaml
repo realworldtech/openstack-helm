@@ -189,6 +189,10 @@ conf:
         disable_password_reveal: "True"
         csrf_cookie_secure: "False"
         enforce_password_check: "True"
+        # Set enable_pwd_validator to true to enforce password validator settings.
+        enable_pwd_validator: false
+        pwd_validator_regex: '(?=.*[a-zA-Z])(?=.*\d).{8,}|(?=.*\d)(?=.*\W).{8,}|(?=.*\W)(?=.*[a-zA-Z]).{8,}'
+        pwd_validator_help_text: '_("Your password must be at least eight (8) characters in length and must include characters from at least two (2) of these groupings: alpha, numeric, and special characters.")'
         session_cookie_secure: "False"
         session_cookie_httponly: "False"
         secure_proxy_ssl_header: false
@@ -223,6 +227,8 @@ conf:
               idp: "myidp2"
               protocol: "saml2"
         log_level: "DEBUG"
+        # Pass any settings to the end of local_settings.py
+        raw: {}
       template: |
         import os
 
@@ -321,11 +327,13 @@ conf:
             'js_spec_files': [],
         }
 
+        {{- if .Values.conf.horizon.local_settings.config.enable_pwd_validator }}
         # Specify a regular expression to validate user passwords.
-        #HORIZON_CONFIG["password_validator"] = {
-        #    "regex": '.*',
-        #    "help_text": _("Your password does not meet the requirements."),
-        #}
+        HORIZON_CONFIG["password_validator"] = {
+            "regex": '{{ .Values.conf.horizon.local_settings.config.pwd_validator_regex }}',
+            "help_text": {{ .Values.conf.horizon.local_settings.config.pwd_validator_help_text }},
+        }
+        {{- end }}
 
         # Disable simplified floating IP address management for deployments with
         # multiple floating IP pools or complex network requirements.
@@ -367,6 +375,15 @@ conf:
                 'PASSWORD': '{{ .Values.endpoints.oslo_db.auth.horizon.password }}',
                 'HOST': '{{ tuple "oslo_db" "internal" . | include "helm-toolkit.endpoints.hostname_fqdn_endpoint_lookup" }}',
                 'default-character-set': 'utf8',
+                {{- if .Values.manifests.certificates }}
+                'OPTIONS':{
+                    'ssl': {
+                        'ca': '/etc/mysql/certs/ca.crt',
+                        'cert': '/etc/mysql/certs/tls.crt',
+                        'key': '/etc/mysql/certs/tls.key'
+                    }
+                },
+                {{- end }}
                 'PORT': '{{ tuple "oslo_db" "internal" "mysql" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}'
             }
         }
@@ -913,6 +930,10 @@ conf:
         DISALLOW_IFRAME_EMBED = {{ .Values.conf.horizon.local_settings.config.disallow_iframe_embed }}
 
         STATIC_ROOT = '/var/www/html/horizon'
+
+        {{- range $option, $value := .Values.conf.horizon.local_settings.config.raw }}
+        {{ $option }} = {{ toJson $value }}
+        {{- end }}
     policy:
       ceilometer:
         context_is_admin: 'role:admin'
@@ -1015,12 +1036,36 @@ conf:
         'volume_extension:volume_type_encryption': 'rule:admin_api'
         'volume_extension:volume_unmanage': 'rule:admin_api'
       glance:
+        metadef_default: ''
+        metadef_admin: 'role:admin'
+        get_metadef_namespace: 'rule:metadef_default'
+        get_metadef_namespaces: 'rule:metadef_default'
+        modify_metadef_namespace: 'rule:metadef_admin'
+        add_metadef_namespace: 'rule:metadef_admin'
+        delete_metadef_namespace: 'rule:metadef_admin'
+        get_metadef_object: 'rule:metadef_default'
+        get_metadef_objects: 'rule:metadef_default'
+        modify_metadef_object: 'rule:metadef_admin'
+        add_metadef_object: 'rule:metadef_admin'
+        delete_metadef_object: 'rule:metadef_admin'
+        list_metadef_resource_types: 'rule:metadef_default'
+        get_metadef_resource_type: 'rule:metadef_default'
+        add_metadef_resource_type_association: 'rule:metadef_admin'
+        remove_metadef_resource_type_association: 'rule:metadef_admin'
+        get_metadef_property: 'rule:metadef_default'
+        get_metadef_properties: 'rule:metadef_default'
+        modify_metadef_property: 'rule:metadef_admin'
+        add_metadef_property: 'rule:metadef_admin'
+        remove_metadef_property: 'rule:metadef_admin'
+        get_metadef_tag: 'rule:metadef_default'
+        get_metadef_tags: 'rule:metadef_default'
+        modify_metadef_tag: 'rule:metadef_admin'
+        add_metadef_tag: 'rule:metadef_admin'
+        add_metadef_tags: 'rule:metadef_admin'
+        delete_metadef_tag: 'rule:metadef_admin'
+        delete_metadef_tags: 'rule:metadef_admin'
         add_image: ''
         add_member: ''
-        add_metadef_namespace: ''
-        add_metadef_object: ''
-        add_metadef_property: ''
-        add_metadef_resource_type_association: ''
         add_task: ''
         admin_or_owner: 'is_admin:True or project_id:%(project_id)s'
         context_is_admin: 'role:admin'
@@ -1029,28 +1074,17 @@ conf:
         delete_image: 'rule:admin_or_owner'
         delete_image_location: ''
         delete_member: ''
-        delete_metadef_namespace: ''
         download_image: ''
         get_image: ''
         get_image_location: ''
         get_images: ''
         get_member: ''
         get_members: ''
-        get_metadef_namespace: ''
-        get_metadef_namespaces: ''
-        get_metadef_object: ''
-        get_metadef_objects: ''
-        get_metadef_properties: ''
-        get_metadef_property: ''
         get_task: ''
         get_tasks: ''
-        list_metadef_resource_types: ''
         manage_image_cache: 'role:admin'
         modify_image: 'rule:admin_or_owner'
         modify_member: ''
-        modify_metadef_namespace: ''
-        modify_metadef_object: ''
-        modify_metadef_property: ''
         modify_task: ''
         publicize_image: ''
         set_image_location: ''
@@ -1735,7 +1769,7 @@ conf:
         'os_compute_api:ips:discoverable': '@'
         'os_compute_api:ips:index': 'rule:admin_or_owner'
         'os_compute_api:ips:show': 'rule:admin_or_owner'
-        'os_compute_api:limits': 'rule:admin_or_owner'
+        'os_compute_api:limits': '@'
         'os_compute_api:limits:discoverable': '@'
         'os_compute_api:os-access-ips': 'rule:admin_or_owner'
         'os_compute_api:os-access-ips:discoverable': '@'
@@ -1764,7 +1798,7 @@ conf:
         'os_compute_api:os-attach-interfaces:discoverable': '@'
         'os_compute_api:os-availability-zone:detail': 'rule:admin_api'
         'os_compute_api:os-availability-zone:discoverable': '@'
-        'os_compute_api:os-availability-zone:list': 'rule:admin_or_owner'
+        'os_compute_api:os-availability-zone:list': '@'
         'os_compute_api:os-baremetal-nodes': 'rule:admin_api'
         'os_compute_api:os-baremetal-nodes:discoverable': '@'
         'os_compute_api:os-block-device-mapping-v1:discoverable': '@'
@@ -2035,6 +2069,21 @@ pod:
           readOnlyRootFilesystem: false
           allowPrivilegeEscalation: false
           runAsUser: 0
+    db_sync:
+      pod:
+        runAsUser: 42424
+      container:
+        horizon_db_sync:
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+    test:
+      pod:
+        runAsUser: 42424
+      container:
+        horizon_test:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
   affinity:
     anti:
       type:
@@ -2213,6 +2262,9 @@ endpoints:
       admin:
         username: root
         password: password
+        secret:
+          tls:
+            internal: mariadb-tls-direct
       horizon:
         username: horizon
         password: password

@@ -15,16 +15,17 @@ limitations under the License.
 */}}
 
 set -ex
-COMMAND="${@:-start}"
 
-function start () {
-  exec neutron-rpc-server \
-        --config-file /etc/neutron/neutron.conf \
-        --config-file /etc/neutron/plugins/ml2/ml2_conf.ini
-}
+mkdir -p ~nova/.ssh
+chown -R nova:nova ~nova/.ssh
 
-function stop () {
-  kill -TERM 1
-}
+cat > ~nova/.ssh/config <<EOF
+Host *
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  port $SSH_PORT
+  IdentitiesOnly yes
+EOF
 
-$COMMAND
+cp /tmp/nova-ssh/* ~nova/.ssh/
+chmod 600 ~nova/.ssh/id_rsa

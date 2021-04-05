@@ -12,6 +12,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */}}
 
+{{- define "metadata.annotations.job.db_sync" }}
+helm.sh/hook: post-install,post-upgrade
+helm.sh/hook-weight: "-4"
+{{- end }}
+
 {{- define "keystone.templates._job_db_sync.env_vars" -}}
 {{- $envAll := index . 0 -}}
 env:
@@ -42,6 +47,7 @@ volumeMounts:
   - name: keystone-fernet-keys
     mountPath: {{ $envAll.Values.conf.keystone.fernet_tokens.key_repository }}
     readOnly: true
+{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 2 }}
 {{- end }}
 
 {{- define "keystone.templates._job_db_sync.pod_vols" -}}
@@ -50,6 +56,7 @@ volumes:
   - name: keystone-fernet-keys
     secret:
       secretName: keystone-fernet-keys
+{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 2 }}
 {{- end }}
 
 {{- if .Values.manifests.job_db_sync }}
@@ -59,6 +66,6 @@ volumes:
 {{- $_ := set $local "podVols" ( index ( tuple . | include "keystone.templates._job_db_sync.pod_vols" | toString | fromYaml ) "volumes" ) }}
 {{- end }}
 {{- $podEnvVars := tuple . | include "keystone.templates._job_db_sync.env_vars" | toString | fromYaml }}
-{{- $dbSyncJob := dict "envAll" . "serviceName" "keystone" "podVolMounts" $local.podVolMounts "podVols" $local.podVols "podEnvVars" $podEnvVars.env -}}
+{{- $dbSyncJob := dict "envAll" . "serviceName" "keystone" "podVolMounts" $local.podVolMounts "podVols" $local.podVols "podEnvVars" $podEnvVars.env "jobAnnotations" (include "metadata.annotations.job.db_sync" . | fromYaml) -}}
 {{ $dbSyncJob | include "helm-toolkit.manifests.job_db_sync" }}
 {{- end }}

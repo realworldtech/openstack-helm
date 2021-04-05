@@ -91,8 +91,6 @@ conf:
       cafile: /etc/heat/certs/ca.crt
     clients:
       ca_file: /etc/heat/certs/ca.crt
-    clients_heat:
-      ca_file: /etc/heat/certs/ca.crt
     clients_keystone:
       ca_file: /etc/heat/certs/ca.crt
 
@@ -146,6 +144,7 @@ endpoints:
           secretName: heat-tls-api
           issuerRef:
             name: ca-issuer
+            kind: ClusterIssuer
     scheme:
       default: https
     port:
@@ -158,6 +157,7 @@ endpoints:
           secretName: heat-tls-cfn
           issuerRef:
             name: ca-issuer
+            kind: ClusterIssuer
     scheme:
       default: https
     port:
@@ -171,7 +171,7 @@ endpoints:
           secretName: heat-tls-cloudwatch
           issuerRef:
             name: ca-issuer
-            kind: Issuer
+            kind: ClusterIssuer
   ingress:
     port:
       ingress:

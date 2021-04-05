@@ -21,7 +21,7 @@ release_group: null
 images:
   tags:
     bootstrap: docker.io/openstackhelm/heat:stein-ubuntu_bionic
-    test: docker.io/xrally/xrally-openstack:1.3.0
+    test: docker.io/xrally/xrally-openstack:2.0.0
     purge_test: docker.io/openstackhelm/ospurge:latest
     db_init: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     neutron_db_sync: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
@@ -31,7 +31,6 @@ images:
     ks_service: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     ks_endpoints: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     neutron_server: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
-    neutron_rpc_server: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
     neutron_dhcp: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
     neutron_metadata: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
     neutron_l3: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
@@ -452,6 +451,10 @@ pod:
     neutron_l2gw_agent:
       pod:
         runAsUser: 42424
+      container:
+        neutron_l2gw_agent:
+          readOnlyRootFilesystem: true
+          privileged: true
     neutron_bagpipe_bgp:
       pod:
         runAsUser: 42424
@@ -513,6 +516,9 @@ pod:
       pod:
         runAsUser: 42424
       container:
+        nginx:
+          runAsUser: 0
+          readOnlyRootFilesystem: false
         neutron_server:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -530,6 +536,10 @@ pod:
     neutron_ironic_agent:
       pod:
         runAsUser: 42424
+      container:
+        neutron_ironic_agent:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
     neutron_netns_cleanup_cron:
       pod:
         runAsUser: 42424
@@ -838,7 +848,7 @@ conf:
         openstack router unset --external-gateway $ROUTER
         openstack router set --disable --no-ha $ROUTER
 
-        SUBNS=$(openstack router show $ROUTER -c interfaces_info --format=value | jq .[].subnet_id | tr -d '\r\"')
+        SUBNS=$(openstack router show $ROUTER -c interfaces_info --format=value | python -m json.tool | grep -oP '(?<="subnet_id": ")[a-f0-9\-]{36}(?=")' | sort | uniq)
         for SUBN in $SUBNS
         do
           openstack router remove subnet $ROUTER $SUBN
@@ -1864,6 +1874,7 @@ conf:
         sh: CommandFilter, sh, root
   neutron:
     DEFAULT:
+      metadata_proxy_socket: /var/lib/neutron/openstack-helm/metadata_proxy
       log_config_append: /etc/neutron/logging.conf
       # NOTE(portdirect): the bind port should not be defined, and is manipulated
       # via the endpoints section.
@@ -1933,7 +1944,7 @@ conf:
         - default
     logger_root:
       level: WARNING
-      handlers: stdout
+      handlers: 'null'
     logger_neutron:
       level: INFO
       handlers:
@@ -2101,6 +2112,12 @@ conf:
   # because additional parameters are needed
   ovs_dpdk:
     enabled: false
+    # setting update_dpdk_bond_config to true will have default behavior,
+    # which may cause disruptions in ovs dpdk traffic in case of neutron
+    # ovs agent restart or when dpdk nic/bond configurations are changed.
+    # Setting this to false will configure dpdk in the first run and
+    # disable nic/bond config on event of restart or config update.
+    update_dpdk_bond_config: true
     driver: uio_pci_generic
     # In case bonds are configured, the nics which are part of those bonds
     # must NOT be provided here.
@@ -2212,6 +2229,9 @@ endpoints:
       admin:
         username: root
         password: password
+        secret:
+          tls:
+            internal: mariadb-tls-direct
       neutron:
         username: neutron
         password: password

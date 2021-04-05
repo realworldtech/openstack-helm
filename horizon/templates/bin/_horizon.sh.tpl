@@ -64,13 +64,21 @@ function start () {
   # If the image has support for it, compile the translations
   if type -p gettext >/dev/null 2>/dev/null; then
     cd ${SITE_PACKAGES_ROOT}/openstack_dashboard; /tmp/manage.py compilemessages
+    # if there are extra panels and the image has support for it, compile the translations
+    {{- range .Values.conf.horizon.extra_panels }}
+    PANEL_DIR="${SITE_PACKAGES_ROOT}/{{ . }}"
+    if [ -d ${PANEL_DIR} ]; then
+      cd ${PANEL_DIR}; /tmp/manage.py compilemessages
+    fi
+    {{- end }}
+    unset PANEL_DIR
   fi
 
   # Compress Horizon's assets.
   /tmp/manage.py collectstatic --noinput
   /tmp/manage.py compress --force
   rm -rf /tmp/_tmp_.secret_key_store.lock /tmp/.secret_key_store
-
+  chmod +x ${SITE_PACKAGES_ROOT}/django/core/wsgi.py
   exec {{ .Values.conf.software.apache2.binary }} {{ .Values.conf.software.apache2.start_parameters }}
 }
 

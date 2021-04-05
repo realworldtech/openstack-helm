@@ -14,6 +14,9 @@
 
 set -xe
 
+#NOTE: Lint and package chart
+make tempest
+
 #NOTE: Deploy command
 export OS_CLOUD=openstack_helm
 
@@ -21,6 +24,7 @@ export OSH_EXT_NET_NAME="public"
 export OSH_EXT_SUBNET_NAME="public-subnet"
 export OSH_EXT_SUBNET="172.24.4.0/24"
 export OSH_BR_EX_ADDR="172.24.4.1/24"
+openstack stack delete --wait --yes heat-public-net-deployment >/dev/null 2>&1 || true
 openstack stack create --wait \
   --parameter network_name=${OSH_EXT_NET_NAME} \
   --parameter physical_network_name=public \
@@ -33,6 +37,7 @@ openstack stack create --wait \
 export OSH_PRIVATE_SUBNET_POOL="10.0.0.0/8"
 export OSH_PRIVATE_SUBNET_POOL_NAME="shared-default-subnetpool"
 export OSH_PRIVATE_SUBNET_POOL_DEF_PREFIX="24"
+openstack stack delete --wait --yes heat-subnet-pool-deployment >/dev/null 2>&1 || true
 openstack stack create --wait \
   --parameter subnet_pool_name=${OSH_PRIVATE_SUBNET_POOL_NAME} \
   --parameter subnet_pool_prefixes=${OSH_PRIVATE_SUBNET_POOL} \

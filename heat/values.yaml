@@ -40,7 +40,7 @@ labels:
 
 images:
   tags:
-    test: docker.io/xrally/xrally-openstack:1.3.0
+    test: docker.io/xrally/xrally-openstack:2.0.0
     bootstrap: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     db_init: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     heat_db_sync: docker.io/openstackhelm/heat:stein-ubuntu_bionic
@@ -516,7 +516,7 @@ conf:
         - default
     logger_root:
       level: WARNING
-      handlers: stdout
+      handlers: 'null'
     logger_heat:
       level: INFO
       handlers:
@@ -938,6 +938,9 @@ endpoints:
       admin:
         username: root
         password: password
+        secret:
+          tls:
+            internal: mariadb-tls-direct
       heat:
         username: heat
         password: password
@@ -1043,6 +1046,27 @@ pod:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
         heat_engine:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    trusts:
+      pod:
+        runAsUser: 42424
+      container:
+        heat_trusts:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    ks_user:
+      pod:
+        runAsUser: 42424
+      container:
+        heat_ks_domain_user:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    engine_cleaner:
+      pod:
+        runAsUser: 42424
+      container:
+        heat_engine_cleaner:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
   affinity:
